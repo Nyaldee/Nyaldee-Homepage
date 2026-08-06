@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nyaldee Homepage</title>
+<link rel="icon" href="favicon.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--
+  Donnees editables dans links.js (liens) et themes.js (couleurs), chargees
+  en <script> classiques juste en dessous (pas de module/fetch -- bloque en
+  file://) : linksData/THEMES_DATA sont deja des variables globales
+  disponibles pour le script principal qui suit.
+-->
+<main class="page">
+  <div class="search-row">
+    <input id="search" type="text" placeholder="Type to search..." autocomplete="off" spellcheck="false" autofocus>
+    <span id="clock" class="clock"></span>
+  </div>
+</main>
+
+<!-- #app est un frere de .page, pas un enfant : largeur independante (voir
+     style.css), plus large que la barre de recherche pour eviter l'effet
+     "tube" quand une categorie a beaucoup de liens. -->
+<div id="app"></div>
+<script src="themes.js"></script>
+<script src="links.js"></script>
+<script>
+(function () {
+  // ---------- Theme (themes.js) : applique le theme actif sur les
+  // variables CSS (repli sinon, voir :root dans style.css). ----------
+  function applyTheme() {
+    const data = THEMES_DATA || {};
+    const themeName = typeof data.theme === "string" ? data.theme : "nier_yorha";
+    const colors = (data.themes && data.themes[themeName]) || {};
+    const root = document.documentElement.style;
+
+    const colorMap = {
+      search_background: "--search-bg",
+      search_text: "--search-text",
+      list_background: "--list-bg",
+      list_text: "--list-text",
+      selected_background: "--selected-bg",
+      selected_text: "--selected-text",
+      border: "--border-color",
+    };
+    for (const key in colorMap) {
+      if (colors[key]) root.setProperty(colorMap[key], colors[key]);
+    }
+
+    if (typeof data.font_family === "string" && data.font_family) {
+      root.setProperty("--font-family", `"${data.font_family}", sans-serif`);
+    }
+
+    const borderWidth = Number(data.border);
+    if (Number.isFinite(borderWidth) && borderWidth >= 0) {
+      root.setProperty("--border-width", `${borderWidth}px`);
+    }
+  }
+  applyTheme();
+
+  // ---------- Mini barres de recherche par site (siteSearches, links.js) --
+  // en dehors du systeme de navigation aux flèches (mode/categoryIndex/
+  // linkIndex) : ce sont des champs independants, Tab/clic + Entree suffit,
+  // pas besoin d'alourdir cette state machine pour ca. ----------
+  const siteSearchesEl = document.createElement("div");
+  siteSearchesEl.className = "site-searches";
+  for (const { name, url } of siteSearches || []) {
+    const siteInput = document.createElement("input");
+    siteInput.type = "text";
+    siteInput.className = "site-search";
+    siteInput.placeholder = name;
+    siteInput.autocomplete = "off";
+    siteInput.spellcheck = false;
+    siteInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      const query = siteInput.value.trim();
+      if (query) window.location.href = url.replace("%s", encodeURIComponent(query));
+    });
+    siteSearchesEl.appendChild(siteInput);
+  }
+  document.body.appendChild(siteSearchesEl);
+
+  // ---------- Rendu depuis linksData (links.js) ----------
+  // Pour chaque cle : un <button class="category-title"> dans .categories
+  // + son <nav class="cloud">, relies par "data-key". Ouverture/fermeture
+  // geree en JS (openCategory), pas de checkbox/CSS ":checked".
+  const app = document.getElementById("app");
+  const categoriesEl = document.createElement("nav");
+  categoriesEl.className = "categories";
+  const cloudFrag = document.createDocumentFragment();
+  const cloudsByKey = new Map();
+  const buttonsByKey = new Map();
+
+  for (const [key, entries] of Object.entries(linksData)) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "category-title";
+    button.textContent = key.charAt(0).toUpperCase() + key.slice(1);
+    button.dataset.key = key;
+    categoriesEl.appendChild(button);
+    buttonsByKey.set(key, button);
+
+    const cloud = document.createElement("nav");
+    cloud.className = "cloud";
+    cloud.dataset.key = key;
+    cloud.hidden = true;
+    for (const { name, url } of entries) {
+      const a = document.createElement("a");
+      a.className = "link-btn";
+      a.href = url;
+      a.textContent = name;
+      cloud.appendChild(a);
+    }
+    cloudFrag.appendChild(cloud);
+    cloudsByKey.set(key, cloud);
+  }
+
+  app.appendChild(categoriesEl);
+  app.appendChild(cloudFrag);
+
+  // setCategoryOpen() est le seul endroit qui touche cloud.hidden/.active --
+  // openCategory()/toggleCategoryDuringSearch()/runSearch() s'en servent tous.
+  function setCategoryOpen(key, open) {
+    cloudsByKey.get(key).hidden = !open;
+    buttonsByKey.get(key).classList.toggle("active", open);
+  }
+
+  // Un seul actif a la fois, re-cliquer le meme le referme. activeKey est
+  // la seule source de verite, modifiee uniquement ici.
+  let activeKey = null;
+
+  function openCategory(key) {
+    if (activeKey === key) {
+      setCategoryOpen(key, false);
+      activeKey = null;
+      return;
+    }
+    if (activeKey) setCategoryOpen(activeKey, false);
+    setCategoryOpen(key, true);
+    activeKey = key;
+  }
+
+  // Pendant une recherche, runSearch() peut ouvrir plusieurs categories a
+  // la fois (une par resultat) -- openCategory() ne s'applique qu'a l'etat
+  // manuel (pas de recherche), sinon sa mono-selection ("activeKey") fermerait
+  // a tort les autres categories ouvertes par la recherche.
+  function toggleCategoryDuringSearch(key) {
+    setCategoryOpen(key, cloudsByKey.get(key).hidden);
+  }
+
+  buttonsByKey.forEach((button, key) => {
+    button.addEventListener("click", () => {
+      if (input.value.trim()) {
+        toggleCategoryDuringSearch(key);
+      } else {
+        openCategory(key);
+      }
+      // Synchronise juste le curseur clavier (pour que Flèches reprenne au
+      // bon endroit) sans le peindre : .selected et .active partagent le
+      // meme style, repeindre .selected ici ferait "clignoter" une autre
+      // categorie deja fermee des qu'on en clique une nouvelle. Seul .active
+      // (l'etat reel ouvert/ferme) doit rester visible apres un clic souris.
+      mode = "category";
+      categoryIndex = categoryLabels.indexOf(button);
+      linkIndex = -1;
+      clearHighlights();
+    });
+  });
+
+  // ---------- Recherche floue -- port de Ports Launcher/MAGI Launcher
+  // (_search_tier/App.match_rank) : prefixe > contient > flou en dernier
+  // recours, jamais "aucun resultat" pour une faute de frappe. ----------
+  function fuzzySpan(text, query) {
+    let first = null, last = null, start = 0;
+    for (const c of query) {
+      const idx = text.indexOf(c, start);
+      if (idx === -1) return null;
+      if (first === null) first = idx;
+      last = idx;
+      start = idx + 1;
+    }
+    return last - first;
+  }
+
+  function tier(name, query) {
+    if (name.startsWith(query)) return [0, 0];
+    if (name.includes(query)) return [1, 0];
+    const span = fuzzySpan(name, query);
+    return span !== null ? [2, span] : null;
+  }
+
+  const input = document.getElementById("search");
+  const links = [...document.querySelectorAll(".link-btn")];
+
+  // Horloge -- toLocaleTimeString() suit le format 12h/24h regle par
+  // l'OS/navigateur, pas un "%H:%M" fige (meme principe que MAGI Launcher).
+  const clockEl = document.getElementById("clock");
+  function updateClock() {
+    clockEl.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  function runSearch(rawQuery) {
+    const query = rawQuery.trim().toLowerCase();
+    if (!query) {
+      links.forEach((a) => { a.style.display = ""; });
+      // Recherche effacee -- retour a l'etat manuel normal (tout referme,
+      // l'utilisateur choisit lui-meme quelle categorie ouvrir).
+      cloudsByKey.forEach((_, key) => setCategoryOpen(key, false));
+      activeKey = null;
+      return;
+    }
+    const matches = new Set();
+    for (const a of links) {
+      if (tier(a.textContent.toLowerCase(), query)) matches.add(a);
+    }
+    // Aucun match (meme flou) -- tout montrer plutot qu'un ecran vide.
+    const visible = matches.size ? matches : new Set(links);
+    links.forEach((a) => { a.style.display = visible.has(a) ? "" : "none"; });
+    // Une categorie avec un resultat s'ouvre seule (sinon le lien resterait
+    // cache) -- plusieurs peuvent s'ouvrir a la fois ici, contrairement au
+    // clic manuel (openCategory() impose le mono-selection, pas ce chemin).
+    cloudsByKey.forEach((cloud, key) => {
+      const hasVisibleLink = [...cloud.querySelectorAll(".link-btn")].some((a) => visible.has(a));
+      setCategoryOpen(key, hasVisibleLink);
+    });
+  }
+
+  // Debounce 150ms -- meme delai que Ports Launcher (voir
+  // ui/launcher_window.py: _build_ui).
+  let debounceTimer = null;
+  input.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => runSearch(input.value), 150);
+    // L'ensemble visible change -- une selection clavier en cours pourrait
+    // pointer vers un element maintenant masque, on repart de zero.
+    mode = "category";
+    categoryIndex = -1;
+    linkIndex = -1;
+    updateSelectionHighlight();
+  });
+
+  // ---------- Navigation flechee : le focus clavier reste dans #search
+  // (jamais deplace), les fleches deplacent juste une selection visuelle
+  // (classe .selected), Entree active la cible.
+  //
+  // 2 modes (pas une liste plate) car Bas doit vraiment descendre dans le
+  // nuage plutot que d'avancer dans la rangee de categories :
+  // - "category" : Gauche/Droite parcourent les boutons ; Bas entre dans
+  //   le nuage ouvert de la categorie selectionnee (rien si fermee).
+  // - "link" : Gauche/Droite parcourent les liens visibles ; Haut/Bas
+  //   sautent d'une rangee visuelle a l'autre (voir rowNeighbor -- le
+  //   nuage est en flex-wrap, "la ligne suivante" n'est pas l'ordre du
+  //   DOM) ; Haut depuis la premiere rangee remonte au bouton de la
+  //   categorie. ----------
+  const categoryLabels = [...buttonsByKey.values()];
+  let mode = "category";
+  let categoryIndex = -1;
+  let linkIndex = -1;
+
+  function visibleLinks() {
+    return links.filter((a) => a.offsetParent !== null);
+  }
+
+  function ownerCategoryLabel(linkEl) {
+    const key = linkEl.closest(".cloud").dataset.key;
+    return buttonsByKey.get(key);
+  }
+
+  function clearHighlights() {
+    for (const el of categoryLabels) el.classList.remove("selected");
+    for (const el of links) el.classList.remove("selected");
+  }
+
+  function updateSelectionHighlight() {
+    clearHighlights();
+    let target = null;
+    if (mode === "category" && categoryIndex >= 0) {
+      target = categoryLabels[categoryIndex];
+    } else if (mode === "link") {
+      target = visibleLinks()[linkIndex] || null;
+    }
+    if (target) {
+      target.classList.add("selected");
+      target.scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  function moveHorizontal(delta) {
+    if (mode === "category") {
+      const n = categoryLabels.length;
+      categoryIndex = categoryIndex === -1 ? (delta > 0 ? 0 : n - 1) : (categoryIndex + delta + n) % n;
+    } else {
+      const visible = visibleLinks();
+      if (!visible.length) return;
+      linkIndex = linkIndex === -1 ? (delta > 0 ? 0 : visible.length - 1) : (linkIndex + delta + visible.length) % visible.length;
+    }
+    updateSelectionHighlight();
+  }
+
+  // Le nuage de liens est en flex-wrap (plusieurs rangees visuelles) --
+  // "monter/descendre d'une rangee" compare les positions REELLES a
+  // l'ecran, pas l'ordre du DOM. Rects calcules une seule fois par lien
+  // (pas a chaque comparaison) : parmi les liens visibles, ne garde que
+  // ceux d'une rangee au-dessus (dy<0) ou en-dessous (dy>0), puis choisit
+  // le plus proche horizontalement.
+  function rowNeighbor(current, dy) {
+    const currentRect = current.getBoundingClientRect();
+    const currentTop = Math.round(currentRect.top);
+    const candidates = visibleLinks().map((el) => ({ el, rect: el.getBoundingClientRect() }));
+
+    let bestRowTop = null;
+    for (const { rect } of candidates) {
+      const top = Math.round(rect.top);
+      const isPastCurrent = dy < 0 ? top < currentTop : top > currentTop;
+      if (isPastCurrent && (bestRowTop === null || (dy < 0 ? top > bestRowTop : top < bestRowTop))) bestRowTop = top;
+    }
+    if (bestRowTop === null) return null; // deja sur la premiere/derniere rangee
+
+    let best = null, bestDist = Infinity;
+    for (const { el, rect } of candidates) {
+      if (Math.round(rect.top) !== bestRowTop) continue;
+      const dist = Math.abs(rect.left - currentRect.left);
+      if (dist < bestDist) { bestDist = dist; best = el; }
+    }
+    return best;
+  }
+
+  function moveDown() {
+    if (mode === "category") {
+      // Rien de selectionne encore -- Bas amorce la navigation comme Droite.
+      if (categoryIndex === -1) {
+        categoryIndex = 0;
+        updateSelectionHighlight();
+        return;
+      }
+      const label = categoryLabels[categoryIndex];
+      const cloud = cloudsByKey.get(label.dataset.key);
+      const firstLink = [...cloud.querySelectorAll(".link-btn")].find((a) => a.offsetParent !== null);
+      if (!firstLink) return; // categorie fermee (ou vide) -- rien sous quoi descendre
+      mode = "link";
+      linkIndex = visibleLinks().indexOf(firstLink);
+      updateSelectionHighlight();
+      return;
+    }
+    // Descend d'une rangee visuelle dans le nuage -- ne fait rien sur la
+    // derniere rangee.
+    const current = visibleLinks()[linkIndex];
+    if (!current) return;
+    const next = rowNeighbor(current, 1);
+    if (next) {
+      linkIndex = visibleLinks().indexOf(next);
+      updateSelectionHighlight();
+    }
+  }
+
+  function moveUp() {
+    if (mode !== "link") return;
+    const current = visibleLinks()[linkIndex];
+    if (!current) return;
+    const prev = rowNeighbor(current, -1);
+    if (prev) {
+      linkIndex = visibleLinks().indexOf(prev);
+      updateSelectionHighlight();
+      return;
+    }
+    // Premiere rangee du nuage -- rien au-dessus a part le bouton de sa
+    // propre categorie.
+    const label = ownerCategoryLabel(current);
+    mode = "category";
+    categoryIndex = label ? categoryLabels.indexOf(label) : -1;
+    updateSelectionHighlight();
+  }
+
+  // document (pas juste input) : marche meme si le focus a quitte la barre
+  // de recherche (clic ailleurs, autofocus rate...).
+  document.addEventListener("keydown", (event) => {
+    switch (event.key) {
+      case "ArrowRight":
+        event.preventDefault();
+        moveHorizontal(1);
+        break;
+      case "ArrowLeft":
+        event.preventDefault();
+        moveHorizontal(-1);
+        break;
+      case "ArrowDown":
+        event.preventDefault();
+        moveDown();
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        moveUp();
+        break;
+      case "Enter": {
+        event.preventDefault();
+        if (mode === "category" && categoryIndex >= 0) {
+          // Ouvre/ferme comme un clic (openCategory() via le listener
+          // "click" pose plus haut, mono-selection incluse).
+          categoryLabels[categoryIndex].click();
+        } else if (mode === "link") {
+          const target = visibleLinks()[linkIndex];
+          if (target) window.location.href = target.href;
+        }
+        break;
+      }
+    }
+  });
+})();
+</script>
+</body>
+</html>

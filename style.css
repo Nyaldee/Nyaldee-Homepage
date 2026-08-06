@@ -1,0 +1,246 @@
+/*
+ * Couleurs recopiees a la main depuis themes.js (theme "nier_yorha", le
+ * theme actif de ce fichier) -- valeurs de repli seulement : themes.js les
+ * ecrase reellement au chargement (voir applyTheme() dans index.html).
+ */
+:root {
+  --search-bg: #bab5a1;
+  --search-text: #6a6355;
+  --list-bg: #d1cdb7;
+  --list-text: #454138;
+  --selected-bg: #454138;
+  --selected-text: #d1cdb7;
+  --border-color: #454138;
+  --border-width: 2px; /* stroke, pas une dimension de mise en page -- volontairement pas relatif */
+  --font-family: "Segoe UI", sans-serif;
+  /* 30% de la largeur d'ecran, sans plafond (MAGI Launcher :
+     _apply_responsive_sizing, "aucun ecran, aussi grand soit-il, ne doit
+     la brider"). % plutot que vw : .page est enfant direct de body
+     (pleine largeur), 30% s'y resout donc contre l'ecran reel. */
+  --content-width: 30%;
+
+  /* Derive du calcul de MAGI Launcher (_apply_responsive_sizing) :
+       initial_width = ecran * 0.30              (WINDOW_WIDTH_FRACTION)
+       target_height = initial_width / (16/9)    (WINDOW_ASPECT_RATIO)
+       row_block     = target_height * 0.085     (ROW_HEIGHT_FRACTION)
+       item_font     = row_block / 1.26          (1 + ROW_SPACING_RATIO)
+     Combine (tout proportionnel a l'ecran) : item_font = ecran * 0.011384,
+     soit ~1.14vw. Approximation : "linespace" (Tk) et "font-size" (CSS)
+     ne sont pas rigoureusement la meme grandeur, mais ce calcul reste
+     plus fidele qu'un chiffre invente. */
+  --item-font-size: 1.14vw;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  background-color: var(--list-bg);
+  color: var(--list-text);
+  font-family: var(--font-family);
+}
+
+.page {
+  width: var(--content-width);
+  /* Position fixe (pas de centrage vertical sur body) : #app grandit
+     quand une categorie s'ouvre, un centrage automatique deplacerait la
+     barre a chaque clic.
+
+     vh, pas % : un pourcentage sur une marge/un padding VERTICAL se
+     resout contre la LARGEUR du conteneur en CSS, jamais sa hauteur
+     (regle du spec) -- % donnerait donc ici une position liee a la
+     largeur d'ecran, pas sa hauteur. 28vh reproduit la formule de MAGI
+     Launcher ("y = work_y + int(work_h * 0.28)", fenetre callee a 28% de
+     la hauteur d'ecran, pas 50%). */
+  margin-top: 28vh;
+}
+
+/* #app (genere par index.html) est un frere de .page, pas son enfant :
+   largeur propre, plus grande que la barre de recherche -- sinon les
+   boutons/liens restent coinces dans les memes 30% et s'empilent en tube
+   des qu'il y en a beaucoup (ex: "tools", 40+ liens). 2x --content-width
+   (60% d'ecran) choisi au jugee, aucun equivalent MAGI pour cette
+   largeur. */
+#app {
+  width: calc(var(--content-width) * 2);
+  /* Centre tout seul : body a deja align-items:center, qui centre
+     n'importe quel enfant flex quelle que soit sa largeur -- pas besoin
+     de margin:auto. */
+  margin-top: var(--item-font-size); /* meme espacement "une ligne" qu'entre la barre et la rangee de categories */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--item-font-size);
+}
+
+.search-row {
+  position: relative;
+  width: 100%;
+}
+
+/* Regles communes aux 4 controles du meme gabarit (bordure/police) --
+   evite de repeter border: var(--border-width) solid var(--border-color)
+   et font-family: inherit sur chacun. */
+#search,
+.category-title,
+.link-btn,
+.site-search {
+  font-family: inherit;
+  border: var(--border-width) solid var(--border-color);
+}
+
+#search,
+.link-btn,
+.site-search {
+  border-radius: 0;
+}
+
+#search {
+  width: 100%;
+  /* font-size en % suivrait la police du PARENT, pas l'ecran -- vw est la
+     seule unite qui marche ici. Meme --item-font-size que l'horloge,
+     comme chez MAGI (item_font partage entre barre et horloge). */
+  font-size: var(--item-font-size);
+  /* Ratios reels de MAGI (SEARCH_PAD_V_RATIO=0.61, SEARCH_PAD_H_RATIO=0.78,
+     appliques a --item-font-size). % marche pour l'horizontal, pas le
+     vertical (meme regle spec que margin-top plus haut) -- em reste
+     correct car relatif a la propre police de l'element. */
+  padding: 0.61em calc(var(--item-font-size) * 0.78);
+  padding-right: 4.5em; /* laisse la place a l'horloge, jamais chevauchee par le texte tape */
+  background-color: var(--search-bg);
+  color: var(--search-text);
+  outline: none;
+}
+
+#search::placeholder {
+  color: var(--search-text);
+  opacity: 0.6;
+}
+
+.clock {
+  position: absolute;
+  right: calc(var(--item-font-size) * 0.78); /* meme SEARCH_PAD_H_RATIO que #search -- MAGI utilise la meme valeur des deux cotes de la barre */
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--search-text); /* meme paire search_background/search_text que MAGI Launcher pour l'horloge */
+  opacity: 0.7;
+  font-size: var(--item-font-size);
+  pointer-events: none;
+}
+
+.categories,
+.cloud {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  /* ROW_SPACING_RATIO=0.26 de MAGI (0.26 * 1.14vw =~ 0.30vw) -- pas de
+     "lignes de liste" ici, mais le meme ratio pour l'espacement entre
+     boutons. */
+  gap: 0.3vw;
+}
+
+.category-title {
+  /* <button> ordinaire -- appearance:none reset le style par defaut du
+     navigateur avant de reappliquer le meme look que les autres boutons. */
+  appearance: none;
+  /* Pas d'equivalent chez MAGI (liste plate) -- reduit au juge par
+     rapport a --item-font-size plutot qu'un vw invente independamment. */
+  font-size: calc(var(--item-font-size) * 0.75);
+  padding: 0.5em 1em;
+  background-color: var(--list-bg);
+  color: var(--list-text);
+  cursor: pointer;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+/* .active = categorie actuellement ouverte (geree en JS, voir
+   openCategory()/runSearch() dans index.html) ; .selected = curseur clavier
+   courant (voir updateSelectionHighlight()) -- meme rendu visuel pour les
+   deux, volontairement (une seule notion de "mis en avant" a l'ecran). */
+.category-title:hover,
+.category-title.active,
+.category-title.selected {
+  background-color: var(--selected-bg);
+  color: var(--selected-text);
+}
+
+/* [hidden] est deja display:none par defaut navigateur, mais avec une
+   specificite egale a .cloud (0,1,0) -- l'origine UA perd toujours face
+   a l'auteur en cas d'egalite, donc sans cette regle .cloud{display:flex}
+   gagnerait et une categorie fermee resterait visible. */
+.cloud[hidden] {
+  display: none;
+}
+
+/* Meme gabarit texte pour .link-btn et .site-search (voir plus bas) --
+   seules leurs couleurs/interactions different. */
+.link-btn,
+.site-search {
+  /* Plus petit que .category-title, meme logique (pas d'equivalent MAGI
+     ici non plus). */
+  font-size: calc(var(--item-font-size) * 0.6);
+  padding: 0.4em 0.8em;
+}
+
+.link-btn {
+  background-color: var(--list-bg);
+  color: var(--list-text);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.link-btn:hover,
+.link-btn:focus-visible,
+.link-btn.selected {
+  background-color: var(--selected-bg);
+  color: var(--selected-text);
+}
+
+/* Mini barres de recherche par site (siteSearches, links.js) -- empilees en
+   bas a gauche, meme gabarit que .link-btn (juste des <input> a la place de
+   <a>). vw/vh/em/% uniquement pour la position/taille, comme le reste de la
+   page.
+
+   left ET bottom en vw (pas vh) : vw/vh sont deux echelles independantes
+   (largeur vs hauteur d'ecran), un meme chiffre dans les deux ne donne donc
+   la meme marge en pixels que sur un ecran carre -- vw pour les deux garantit
+   un coin visuellement symetrique quel que soit le ratio d'ecran.
+
+   width ici (pas sur .site-search) : .site-searches est en position:fixed,
+   son bloc englobant est donc bien le viewport -- un % s'y resout contre
+   l'ecran, exactement comme --content-width (30%) pour #search. Le meme %
+   pose sur .site-search directement se resoudrait contre .site-searches
+   (son propre parent en flux normal), pas l'ecran -- largeur bien plus
+   petite qu'attendu. */
+.site-searches {
+  position: fixed;
+  left: 1.5vw;
+  bottom: 1.5vw;
+  width: calc(var(--content-width) / 2);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3vw;
+}
+.site-search {
+  width: 100%;
+  appearance: none; /* reset le widget natif du navigateur -- sinon sa taille intrinseque peut differer de celle d'un <button>/<a> a padding/font-size identiques */
+  background-color: var(--search-bg);
+  color: var(--search-text);
+  outline: none;
+}
+.site-search::placeholder {
+  color: var(--search-text);
+  opacity: 0.6;
+}
